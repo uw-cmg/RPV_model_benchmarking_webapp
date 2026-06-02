@@ -10,5 +10,3 @@ services:
         value: 3.11.9
       - key: TF_CPP_MIN_LOG_LEVEL
         value: "2"
-      - key: MPLCONFIGDIR
-        value: /tmp/matplotlib

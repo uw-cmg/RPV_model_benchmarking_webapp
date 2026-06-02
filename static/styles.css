@@ -16,6 +16,7 @@
 }
 
 body {
+  position: relative;
   margin: 0;
   min-height: 100vh;
   background: var(--bg);
@@ -25,19 +26,33 @@ body {
   line-height: 1.45;
 }
 
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("/static/jacobs26-background.png");
+  background-repeat: no-repeat;
+  background-position: right 28px bottom 24px;
+  background-size: min(980px, 78vw);
+  opacity: 0.11;
+  pointer-events: none;
+  z-index: -1;
+}
+
 .shell {
+  position: relative;
   width: min(1160px, calc(100vw - 32px));
   margin: 0 auto;
   padding: 28px 0 48px;
 }
 
 .topbar,
+.model-note,
 .workbench,
 .summary,
-.plot,
 .table-wrap,
 .notice {
-  background: var(--panel);
+  background: rgba(255, 255, 255, 0.94);
   border: 1px solid var(--line);
   border-radius: 8px;
 }
@@ -48,6 +63,18 @@ body {
   justify-content: space-between;
   gap: 20px;
   padding: 22px 24px;
+}
+
+.model-note {
+  margin-top: 16px;
+  padding: 16px 24px;
+}
+
+.model-note p {
+  max-width: 920px;
+  margin: 0;
+  color: #314744;
+  font-size: 1rem;
 }
 
 .eyebrow,
@@ -167,17 +194,6 @@ input[type="file"] {
   display: block;
   font-size: 1.8rem;
   line-height: 1.05;
-}
-
-.plot {
-  margin-top: 16px;
-  padding: 12px;
-}
-
-.plot img {
-  display: block;
-  width: 100%;
-  height: auto;
 }
 
 .table-wrap {

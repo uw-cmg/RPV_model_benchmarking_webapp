@@ -16,6 +16,14 @@
         <a class="health" href="/health" aria-label="Health endpoint">/health</a>
       </section>
 
+      <section class="model-note">
+        <p>
+          Jacobs26 NN model predicts transition temperature shift for reactor pressure vessel steels from composition,
+          temperature, fluence, and flux. The model app reports ensemble mean TTS, calibrated uncertainty, and a
+          training data domain distance flag for out-of-domain inputs.
+        </p>
+      </section>
+
       <section class="workbench">
         <form class="upload" action="/predict" method="post" enctype="multipart/form-data">
           <label for="file">Input file</label>
@@ -46,10 +54,6 @@
             <strong>{{ result.rows }}</strong>
           </div>
           <a class="download" href="{{ url_for('download', result_id=result.download_id) }}">Download CSV</a>
-        </section>
-
-        <section class="plot">
-          <img src="{{ result.plot_uri }}" alt="Histogram of predicted TTS values">
         </section>
 
         <section class="table-wrap">

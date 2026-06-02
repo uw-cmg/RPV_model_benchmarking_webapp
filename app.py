@@ -1,20 +1,14 @@
-import base64
 import io
 import json
 import os
 import uuid
 from functools import lru_cache
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
-import matplotlib
 import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, render_template, request, send_file
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
 import models as rpv_models
 from models import EnsembleNN_Jacobs26
@@ -35,6 +29,11 @@ RAW_REQUIRED_COLUMNS = [
     "wt_percent_C",
     "fluence_n_cm2",
     "flux_n_cm2_sec",
+]
+
+MODEL_INPUT_COLUMNS = RAW_REQUIRED_COLUMNS + [
+    "log(fluence_n_cm2)",
+    "log(flux_n_cm2_sec)",
 ]
 
 DISPLAY_COLUMNS = [
@@ -142,22 +141,14 @@ def predict_jacobs26(df):
     return results
 
 
-def histogram_data_uri(predictions):
-    fig, ax = plt.subplots(figsize=(7, 4.2), dpi=150)
-    bins = min(30, max(5, int(np.sqrt(len(predictions)))))
-    ax.hist(predictions, bins=bins, color="#2f6f73", edgecolor="#f8fbfa", linewidth=0.8)
-    ax.set_title("Predicted TTS Distribution")
-    ax.set_xlabel("Predicted TTS (degC)")
-    ax.set_ylabel("Count")
-    ax.grid(axis="y", alpha=0.22)
-    fig.tight_layout()
-
-    buffer = io.BytesIO()
-    fig.savefig(buffer, format="png")
-    plt.close(fig)
-    buffer.seek(0)
-    encoded = base64.b64encode(buffer.read()).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
+def output_columns(results, uploaded_columns):
+    current_columns = [column for column in DISPLAY_COLUMNS if column in results.columns]
+    metadata_columns = [
+        column
+        for column in uploaded_columns
+        if column not in current_columns and column not in MODEL_INPUT_COLUMNS
+    ]
+    return current_columns + metadata_columns
 
 
 def cache_results(results):
@@ -194,7 +185,9 @@ def predict():
         ), 400
 
     try:
-        input_df = prepare_input(read_uploaded_table(upload))
+        uploaded_df = read_uploaded_table(upload)
+        uploaded_columns = list(uploaded_df.columns)
+        input_df = prepare_input(uploaded_df)
         results = predict_jacobs26(input_df)
     except Exception as exc:
         return render_template(
@@ -204,13 +197,13 @@ def predict():
             error=str(exc),
         ), 400
 
-    result_id = cache_results(results)
-    table_columns = [column for column in DISPLAY_COLUMNS if column in results.columns]
+    table_columns = output_columns(results, uploaded_columns)
+    ordered_results = results[table_columns]
+    result_id = cache_results(ordered_results)
     result = {
         "rows": len(results),
         "download_id": result_id,
-        "plot_uri": histogram_data_uri(results[PREDICTION_COLUMN].to_numpy()),
-        "records": results[table_columns].head(100).to_dict(orient="records"),
+        "records": ordered_results.head(100).to_dict(orient="records"),
         "columns": table_columns,
         "truncated": len(results) > 100,
     }
@@ -229,17 +222,21 @@ def api_predict():
         return jsonify({"error": "Choose a CSV or XLSX file."}), 400
 
     try:
-        input_df = prepare_input(read_uploaded_table(upload))
+        uploaded_df = read_uploaded_table(upload)
+        uploaded_columns = list(uploaded_df.columns)
+        input_df = prepare_input(uploaded_df)
         results = predict_jacobs26(input_df)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 
+    columns = output_columns(results, uploaded_columns)
+    ordered_results = results[columns]
     return jsonify(
         {
             "model": "Jacobs26 NN",
             "domain_threshold": DOMAIN_THRESHOLD,
             "rows": len(results),
-            "predictions": results.to_dict(orient="records"),
+            "predictions": ordered_results.to_dict(orient="records"),
         }
     )
 
