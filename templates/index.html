@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Jacobs26 RPV NN</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="topbar">
+        <div>
+          <p class="eyebrow">RPV Model Benchmarking</p>
+          <h1>Jacobs26 NN</h1>
+        </div>
+        <a class="health" href="/health" aria-label="Health endpoint">/health</a>
+      </section>
+
+      <section class="workbench">
+        <form class="upload" action="/predict" method="post" enctype="multipart/form-data">
+          <label for="file">Input file</label>
+          <div class="file-row">
+            <input id="file" name="file" type="file" accept=".csv,.xlsx,.xls" required>
+            <button type="submit">Run</button>
+          </div>
+        </form>
+
+        <div class="columns">
+          <p>Required columns</p>
+          <div class="chips">
+            {% for column in required_columns %}
+              <span>{{ column }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      {% if error %}
+        <section class="notice" role="alert">{{ error }}</section>
+      {% endif %}
+
+      {% if result %}
+        <section class="summary">
+          <div>
+            <p>Rows</p>
+            <strong>{{ result.rows }}</strong>
+          </div>
+          <a class="download" href="{{ url_for('download', result_id=result.download_id) }}">Download CSV</a>
+        </section>
+
+        <section class="plot">
+          <img src="{{ result.plot_uri }}" alt="Histogram of predicted TTS values">
+        </section>
+
+        <section class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                {% for column in result.columns %}
+                  <th>{{ column }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in result.records %}
+                <tr>
+                  {% for column in result.columns %}
+                    <td>{{ row[column] }}</td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% if result.truncated %}
+            <p class="truncated">Showing first 100 rows.</p>
+          {% endif %}
+        </section>
+      {% endif %}
+    </main>
+  </body>
+</html>

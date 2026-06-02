@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: rpv-jacobs26-nn
+    runtime: python
+    plan: standard
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 180
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: "2"
+      - key: MPLCONFIGDIR
+        value: /tmp/matplotlib
