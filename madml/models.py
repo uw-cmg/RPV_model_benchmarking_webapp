@@ -64,6 +64,23 @@ class calibration:
         return np.zeros(len(X))
 
 
+class domain:
+    def fit(self, X, y=None):
+        return self
+
+    def predict(self, X):
+        if hasattr(self, "model") and hasattr(self.model, "predict"):
+            pred = self.model.predict(X)
+        elif hasattr(self, "threshold") and "d_pred" in getattr(X, "columns", []):
+            pred = np.asarray(X["d_pred"]) > float(self.threshold)
+        elif "d_pred" in getattr(X, "columns", []):
+            pred = np.asarray(X["d_pred"])
+        else:
+            pred = np.zeros(len(X))
+
+        return pd.DataFrame({"domain_pred": np.asarray(pred).ravel()}, index=getattr(X, "index", None))
+
+
 def _predict_component(component, X):
     if hasattr(component, "predict"):
         pred = component.predict(X)
