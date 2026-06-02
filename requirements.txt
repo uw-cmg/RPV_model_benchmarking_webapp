@@ -5,8 +5,9 @@ pandas==2.3.3
 openpyxl==3.1.5
 matplotlib==3.9.4
 joblib==1.5.3
-scikit-learn==1.5.2
+scikit-learn==1.7.1
 tensorflow==2.16.2
 keras==3.11.2
 scikeras==0.13.0
 dill==0.3.9
+madml==2.6.7
