@@ -23,7 +23,7 @@ from models import EnsembleNN_Jacobs26
 PREDICTION_COLUMN = "Jacobs26 NN ensemble predicted TTS (degC)"
 ERROR_BAR_COLUMN = "Jacobs26 NN ensemble error bars (degC)"
 DOMAIN_COLUMN = "Jacobs26 NN ensemble domain d"
-DOMAIN_THRESHOLD = 0.99
+DOMAIN_THRESHOLD = 0.9
 
 RAW_REQUIRED_COLUMNS = [
     "temperature_C",
@@ -41,7 +41,7 @@ DISPLAY_COLUMNS = [
     PREDICTION_COLUMN,
     ERROR_BAR_COLUMN,
     DOMAIN_COLUMN,
-    "Jacobs26 NN ensemble in domain",
+    "Jacobs26 NN ensemble out of domain",
 ] + RAW_REQUIRED_COLUMNS
 
 RESULT_CACHE = {}
@@ -138,7 +138,7 @@ def predict_jacobs26(df):
     results[PREDICTION_COLUMN] = preds
     results[ERROR_BAR_COLUMN] = ebars
     results[DOMAIN_COLUMN] = domains
-    results["Jacobs26 NN ensemble in domain"] = results[DOMAIN_COLUMN] <= DOMAIN_THRESHOLD
+    results["Jacobs26 NN ensemble out of domain"] = results[DOMAIN_COLUMN] > DOMAIN_THRESHOLD
     return results
 
 
