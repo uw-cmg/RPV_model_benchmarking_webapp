@@ -225,7 +225,7 @@ def load_gbr_assets():
         mean=scaler_stats["mean"],
         scale=scaler_stats["scale"],
     )
-    model = joblib.load(os.path.join(model_folder, "GradientBoostingRegressor.pkl"))
+    model = joblib.load(os.path.join(model_folder, "GradientBoostingRegressor_sklearn.pkl"))
     return feature_columns, model, preprocessor
 
 
