@@ -12,7 +12,6 @@ import pandas as pd
 from flask import Flask, jsonify, render_template, request, send_file
 
 from models import E900, EONY, EnsembleNN_Jacobs23, EnsembleNN_Jacobs26
-import joblib
 
 
 PREDICTION_COLUMN = "Jacobs26 NN ensemble predicted TTS (degC)"
@@ -166,6 +165,61 @@ class StandardScalerAdapter:
         return pd.DataFrame(scaled, columns=self.feature_columns, index=df.index)
 
 
+class PortableGradientBoostingRegressor:
+    def __init__(self, init_constant, learning_rate, trees):
+        self.init_constant = float(init_constant)
+        self.learning_rate = float(learning_rate)
+        self.trees = trees
+
+    @classmethod
+    def load(cls, filename):
+        payload = np.load(filename, allow_pickle=False)
+        n_estimators = int(payload["n_estimators"][0])
+        trees = []
+        for idx in range(n_estimators):
+            trees.append(
+                {
+                    "children_left": payload[f"children_left_{idx}"],
+                    "children_right": payload[f"children_right_{idx}"],
+                    "feature": payload[f"feature_{idx}"],
+                    "threshold": payload[f"threshold_{idx}"],
+                    "value": payload[f"value_{idx}"],
+                }
+            )
+        return cls(
+            init_constant=payload["init_constant"][0],
+            learning_rate=payload["learning_rate"][0],
+            trees=trees,
+        )
+
+    def predict(self, values):
+        values = np.asarray(values, dtype=float)
+        predictions = np.full(values.shape[0], self.init_constant, dtype=float)
+        for tree in self.trees:
+            predictions += self.learning_rate * self._predict_tree(tree, values)
+        return predictions
+
+    @staticmethod
+    def _predict_tree(tree, values):
+        tree_predictions = np.empty(values.shape[0], dtype=float)
+        children_left = tree["children_left"]
+        children_right = tree["children_right"]
+        features = tree["feature"]
+        thresholds = tree["threshold"]
+        node_values = tree["value"]
+
+        for row_index, row in enumerate(values):
+            node = 0
+            while children_left[node] != -1:
+                feature = features[node]
+                if row[feature] <= thresholds[node]:
+                    node = children_left[node]
+                else:
+                    node = children_right[node]
+            tree_predictions[row_index] = node_values[node]
+        return tree_predictions
+
+
 @lru_cache(maxsize=1)
 def load_jacobs26_assets():
     predictor = EnsembleNN_Jacobs26()
@@ -225,7 +279,9 @@ def load_gbr_assets():
         mean=scaler_stats["mean"],
         scale=scaler_stats["scale"],
     )
-    model = joblib.load(os.path.join(model_folder, "GradientBoostingRegressor_sklearn.pkl"))
+    model = PortableGradientBoostingRegressor.load(
+        os.path.join(model_folder, "GradientBoostingRegressor_portable.npz")
+    )
     return feature_columns, model, preprocessor
 
 
