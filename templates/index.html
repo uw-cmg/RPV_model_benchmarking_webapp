@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Jacobs26 RPV NN</title>
+    <title>RPV Model App</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
@@ -11,7 +11,7 @@
       <section class="topbar">
         <div>
           <p class="eyebrow">RPV Model Benchmarking</p>
-          <h1>Jacobs26 NN</h1>
+          <h1>RPV TTS Models</h1>
         </div>
         <a class="health" href="/health" aria-label="Health endpoint">/health</a>
       </section>
@@ -26,20 +26,29 @@
 
       <section class="workbench">
         <form class="upload" action="/predict" method="post" enctype="multipart/form-data">
+          <label for="model">Model</label>
+          <select id="model" name="model">
+            {% for value, label in model_options %}
+              <option value="{{ value }}" {% if value == selected_model %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+
           <label for="file">Input file</label>
           <div class="file-row">
             <input id="file" name="file" type="file" accept=".csv,.xlsx,.xls" required>
             <button type="submit">Run</button>
+            <button type="submit" formaction="/predict-example" formnovalidate>Run Example</button>
           </div>
         </form>
 
         <div class="columns">
           <p>Required columns</p>
-          <div class="chips">
+          <div class="chips" id="required-columns">
             {% for column in required_columns %}
               <span>{{ column }}</span>
             {% endfor %}
           </div>
+          <a class="example-link" href="{{ url_for('download_example') }}">Download RPV_test.xlsx</a>
         </div>
       </section>
 
@@ -81,5 +90,17 @@
         </section>
       {% endif %}
     </main>
+    <script>
+      const modelSpecs = {{ model_specs | tojson }};
+      const modelSelect = document.querySelector("#model");
+      const requiredColumns = document.querySelector("#required-columns");
+
+      function renderRequiredColumns() {
+        const columns = modelSpecs[modelSelect.value].required;
+        requiredColumns.innerHTML = columns.map((column) => `<span>${column}</span>`).join("");
+      }
+
+      modelSelect.addEventListener("change", renderRequiredColumns);
+    </script>
   </body>
 </html>
