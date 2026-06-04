@@ -26,12 +26,16 @@
 
       <section class="workbench">
         <form class="upload" action="/predict" method="post" enctype="multipart/form-data">
-          <label for="model">Model</label>
-          <select id="model" name="model">
+          <input type="hidden" name="models_submitted" value="1">
+          <fieldset class="model-checklist">
+            <legend>Models</legend>
             {% for value, label in model_options %}
-              <option value="{{ value }}" {% if value == selected_model %}selected{% endif %}>{{ label }}</option>
+              <label>
+                <input type="checkbox" name="models" value="{{ value }}" {% if value in selected_models %}checked{% endif %}>
+                <span>{{ label }}</span>
+              </label>
             {% endfor %}
-          </select>
+          </fieldset>
 
           <label for="file">Input file</label>
           <div class="file-row">
@@ -92,15 +96,27 @@
     </main>
     <script>
       const modelSpecs = {{ model_specs | tojson }};
-      const modelSelect = document.querySelector("#model");
+      const modelInputs = Array.from(document.querySelectorAll('input[name="models"]'));
       const requiredColumns = document.querySelector("#required-columns");
 
+      function selectedModels() {
+        const checked = modelInputs.filter((input) => input.checked).map((input) => input.value);
+        return checked.length ? checked : ["Jacobs26"];
+      }
+
       function renderRequiredColumns() {
-        const columns = modelSpecs[modelSelect.value].required;
+        const columns = [];
+        selectedModels().forEach((model) => {
+          modelSpecs[model].required.forEach((column) => {
+            if (!columns.includes(column)) {
+              columns.push(column);
+            }
+          });
+        });
         requiredColumns.innerHTML = columns.map((column) => `<span>${column}</span>`).join("");
       }
 
-      modelSelect.addEventListener("change", renderRequiredColumns);
+      modelInputs.forEach((input) => input.addEventListener("change", renderRequiredColumns));
     </script>
   </body>
 </html>
