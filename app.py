@@ -44,6 +44,7 @@ MODEL_OPTIONS = [
     ("EONY", "EONY"),
     ("E900", "E900"),
 ]
+DEFAULT_SELECTED_MODELS = ["Jacobs26"]
 
 MODEL_SPECS = {
     "Jacobs26": {
@@ -294,11 +295,28 @@ def read_uploaded_table(upload):
     raise ValueError("Upload a CSV or XLSX file.")
 
 
-def selected_model():
-    model_name = request.form.get("model", "Jacobs26")
-    if model_name not in MODEL_SPECS:
-        raise ValueError(f"Unsupported model: {model_name}")
-    return model_name
+def selected_models():
+    model_names = request.form.getlist("models")
+    if not model_names and request.form.get("models_submitted"):
+        raise ValueError("Choose at least one model.")
+    if not model_names:
+        legacy_model = request.form.get("model")
+        model_names = [legacy_model] if legacy_model else DEFAULT_SELECTED_MODELS
+
+    unsupported = [model_name for model_name in model_names if model_name not in MODEL_SPECS]
+    if unsupported:
+        raise ValueError("Unsupported model: " + ", ".join(unsupported))
+
+    return [model_name for model_name, _label in MODEL_OPTIONS if model_name in model_names]
+
+
+def required_columns_for_models(model_names):
+    required_columns = []
+    for model_name in model_names:
+        for column in MODEL_SPECS[model_name]["required"]:
+            if column not in required_columns:
+                required_columns.append(column)
+    return required_columns
 
 
 def prepare_input(df, model_name):
@@ -340,6 +358,45 @@ def prepare_input(df, model_name):
     return prepared
 
 
+def prepare_input_for_models(df, model_names):
+    required_columns = required_columns_for_models(model_names)
+    missing = [column for column in required_columns if column not in df.columns]
+    if missing:
+        raise ValueError("Missing required columns: " + ", ".join(missing))
+
+    prepared = df.copy()
+    numeric_required = [column for column in required_columns if column in NUMERIC_COLUMNS]
+    for column in numeric_required:
+        prepared[column] = pd.to_numeric(prepared[column], errors="coerce")
+
+    invalid_numeric = [
+        column for column in numeric_required if prepared[column].isna().any()
+    ]
+    if invalid_numeric:
+        raise ValueError(
+            "These required columns contain blank or non-numeric values: "
+            + ", ".join(invalid_numeric)
+        )
+
+    nonpositive = []
+    for column in ["fluence_n_cm2", "flux_n_cm2_sec"]:
+        if column in required_columns and (prepared[column] <= 0).any():
+            nonpositive.append(column)
+    if nonpositive:
+        raise ValueError(
+            "These columns must be positive because their log10 values are used: "
+            + ", ".join(nonpositive)
+        )
+
+    if "fluence_n_cm2" in prepared.columns:
+        prepared["log(fluence_n_cm2)"] = np.log10(prepared["fluence_n_cm2"].astype(float))
+    if "flux_n_cm2_sec" in prepared.columns:
+        prepared["log(flux_n_cm2_sec)"] = np.log10(
+            prepared["flux_n_cm2_sec"].astype(float)
+        )
+    return prepared
+
+
 def predict_model(df, model_name):
     if model_name == "Jacobs26":
         return predict_jacobs26(df)
@@ -352,6 +409,16 @@ def predict_model(df, model_name):
     if model_name == "E900":
         return E900().predict(df.copy())[1]
     raise ValueError(f"Unsupported model: {model_name}")
+
+
+def predict_models(df, model_names):
+    results = df.copy()
+    for model_name in model_names:
+        model_results = predict_model(results, model_name)
+        for column in MODEL_SPECS[model_name]["outputs"]:
+            if column in model_results.columns:
+                results[column] = model_results[column]
+    return results
 
 
 def predict_jacobs26(df):
@@ -416,17 +483,15 @@ def predict_gbr(df):
     return results
 
 
-def output_columns(results, uploaded_columns, model_name):
-    spec = MODEL_SPECS[model_name]
-    current_columns = [
-        column for column in spec["outputs"] + spec["required"] if column in results.columns
-    ]
-    metadata_columns = [
-        column
-        for column in uploaded_columns
-        if column not in current_columns and column not in spec["inputs"]
-    ]
-    return current_columns + metadata_columns
+def output_columns(results, uploaded_columns, model_names):
+    output_columns_for_models = []
+    for model_name in model_names:
+        for column in MODEL_SPECS[model_name]["outputs"]:
+            if column in results.columns and column not in output_columns_for_models:
+                output_columns_for_models.append(column)
+
+    original_columns = [column for column in uploaded_columns if column in results.columns]
+    return original_columns + output_columns_for_models
 
 
 def cache_results(results):
@@ -434,6 +499,23 @@ def cache_results(results):
     payload = results.to_csv(index=False).encode("utf-8")
     RESULT_CACHE[result_id] = payload
     return result_id
+
+
+def render_prediction(uploaded_df, model_names):
+    uploaded_columns = list(uploaded_df.columns)
+    input_df = prepare_input_for_models(uploaded_df, model_names)
+    results = predict_models(input_df, model_names)
+    table_columns = output_columns(results, uploaded_columns, model_names)
+    ordered_results = results[table_columns]
+    result_id = cache_results(ordered_results)
+    return {
+        "rows": len(results),
+        "download_id": result_id,
+        "records": ordered_results.head(100).to_dict(orient="records"),
+        "columns": table_columns,
+        "truncated": len(results) > 100,
+        "selected_models": model_names,
+    }
 
 
 @app.get("/health")
@@ -447,8 +529,8 @@ def index():
         "index.html",
         model_options=MODEL_OPTIONS,
         model_specs=MODEL_SPECS,
-        selected_model="Jacobs26",
-        required_columns=MODEL_SPECS["Jacobs26"]["required"],
+        selected_models=DEFAULT_SELECTED_MODELS,
+        required_columns=required_columns_for_models(DEFAULT_SELECTED_MODELS),
         result=None,
         error=None,
     )
@@ -456,51 +538,34 @@ def index():
 
 @app.post("/predict")
 def predict():
-    model_name = selected_model()
-    upload = request.files.get("file")
-    if upload is None or upload.filename == "":
-        return render_template(
-            "index.html",
-            model_options=MODEL_OPTIONS,
-            model_specs=MODEL_SPECS,
-            selected_model=model_name,
-            required_columns=MODEL_SPECS[model_name]["required"],
-            result=None,
-            error="Choose a CSV or XLSX file.",
-        ), 400
-
     try:
+        model_names = selected_models()
+        upload = request.files.get("file")
+        if upload is None or upload.filename == "":
+            raise ValueError("Choose a CSV or XLSX file.")
         uploaded_df = read_uploaded_table(upload)
-        uploaded_columns = list(uploaded_df.columns)
-        input_df = prepare_input(uploaded_df, model_name)
-        results = predict_model(input_df, model_name)
+        result = render_prediction(uploaded_df, model_names)
     except Exception as exc:
+        model_names = request.form.getlist("models") or DEFAULT_SELECTED_MODELS
+        model_names = [model_name for model_name in model_names if model_name in MODEL_SPECS]
+        if not model_names:
+            model_names = DEFAULT_SELECTED_MODELS
         return render_template(
             "index.html",
             model_options=MODEL_OPTIONS,
             model_specs=MODEL_SPECS,
-            selected_model=model_name,
-            required_columns=MODEL_SPECS[model_name]["required"],
+            selected_models=model_names,
+            required_columns=required_columns_for_models(model_names),
             result=None,
             error=str(exc),
         ), 400
 
-    table_columns = output_columns(results, uploaded_columns, model_name)
-    ordered_results = results[table_columns]
-    result_id = cache_results(ordered_results)
-    result = {
-        "rows": len(results),
-        "download_id": result_id,
-        "records": ordered_results.head(100).to_dict(orient="records"),
-        "columns": table_columns,
-        "truncated": len(results) > 100,
-    }
     return render_template(
         "index.html",
         model_options=MODEL_OPTIONS,
         model_specs=MODEL_SPECS,
-        selected_model=model_name,
-        required_columns=MODEL_SPECS[model_name]["required"],
+        selected_models=model_names,
+        required_columns=required_columns_for_models(model_names),
         result=result,
         error=None,
     )
@@ -508,39 +573,31 @@ def predict():
 
 @app.post("/predict-example")
 def predict_example():
-    model_name = selected_model()
     try:
+        model_names = selected_models()
         uploaded_df = pd.read_excel(EXAMPLE_FILE)
-        uploaded_columns = list(uploaded_df.columns)
-        input_df = prepare_input(uploaded_df, model_name)
-        results = predict_model(input_df, model_name)
+        result = render_prediction(uploaded_df, model_names)
     except Exception as exc:
+        model_names = request.form.getlist("models") or DEFAULT_SELECTED_MODELS
+        model_names = [model_name for model_name in model_names if model_name in MODEL_SPECS]
+        if not model_names:
+            model_names = DEFAULT_SELECTED_MODELS
         return render_template(
             "index.html",
             model_options=MODEL_OPTIONS,
             model_specs=MODEL_SPECS,
-            selected_model=model_name,
-            required_columns=MODEL_SPECS[model_name]["required"],
+            selected_models=model_names,
+            required_columns=required_columns_for_models(model_names),
             result=None,
             error=str(exc),
         ), 400
 
-    table_columns = output_columns(results, uploaded_columns, model_name)
-    ordered_results = results[table_columns]
-    result_id = cache_results(ordered_results)
-    result = {
-        "rows": len(results),
-        "download_id": result_id,
-        "records": ordered_results.head(100).to_dict(orient="records"),
-        "columns": table_columns,
-        "truncated": len(results) > 100,
-    }
     return render_template(
         "index.html",
         model_options=MODEL_OPTIONS,
         model_specs=MODEL_SPECS,
-        selected_model=model_name,
-        required_columns=MODEL_SPECS[model_name]["required"],
+        selected_models=model_names,
+        required_columns=required_columns_for_models(model_names),
         result=result,
         error=None,
     )
@@ -548,9 +605,11 @@ def predict_example():
 
 @app.post("/api/predict")
 def api_predict():
-    model_name = request.form.get("model", "Jacobs26")
-    if model_name not in MODEL_SPECS:
-        return jsonify({"error": f"Unsupported model: {model_name}"}), 400
+    try:
+        model_names = selected_models()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     upload = request.files.get("file")
     if upload is None or upload.filename == "":
         return jsonify({"error": "Choose a CSV or XLSX file."}), 400
@@ -558,17 +617,17 @@ def api_predict():
     try:
         uploaded_df = read_uploaded_table(upload)
         uploaded_columns = list(uploaded_df.columns)
-        input_df = prepare_input(uploaded_df, model_name)
-        results = predict_model(input_df, model_name)
+        input_df = prepare_input_for_models(uploaded_df, model_names)
+        results = predict_models(input_df, model_names)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 
-    columns = output_columns(results, uploaded_columns, model_name)
+    columns = output_columns(results, uploaded_columns, model_names)
     ordered_results = results[columns]
     return jsonify(
         {
-            "model": dict(MODEL_OPTIONS)[model_name],
-            "selected_model": model_name,
+            "models": [dict(MODEL_OPTIONS)[model_name] for model_name in model_names],
+            "selected_models": model_names,
             "domain_threshold": DOMAIN_THRESHOLD,
             "rows": len(results),
             "predictions": ordered_results.to_dict(orient="records"),
